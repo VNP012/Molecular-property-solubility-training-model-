@@ -1,0 +1,65 @@
+!pip install rdkit-pypi --quiet
+import pandas as pd
+
+# Load ESOL directly from URL (contains SMILES + solubility)
+url = "https://deepchemdata.s3-us-west-1.amazonaws.com/datasets/delaney-processed.csv"
+df = pd.read_csv(url)
+
+# Select SMILES + solubility columns
+df = df[["smiles", "measured log solubility in mols per litre"]]
+df.columns = ["smiles", "solubility"]
+df.head()
+import tensorflow as tf
+import tensorflow as tf
+from tensorflow.keras.preprocessing.sequence import pad_sequences
+
+# Build character-level vocabulary
+charset = sorted(set("".join(df['smiles'])))
+char_to_idx = {ch: i + 1 for i, ch in enumerate(charset)}
+vocab_size = len(char_to_idx) + 1
+
+def encode_smiles(smiles, maxlen=100):
+    seq = [char_to_idx[ch] for ch in smiles]
+    return pad_sequences([seq], maxlen=maxlen, padding='post')[0]
+
+df['X'] = df['smiles'].apply(lambda x: encode_smiles(x))
+X = tf.convert_to_tensor(df['X'].tolist(), dtype=tf.int32)
+y = tf.convert_to_tensor(df['solubility'].tolist(), dtype=tf.float32)
+from tensorflow.keras import layers, models
+
+model = models.Sequential([
+    layers.Embedding(input_dim=vocab_size, output_dim=32, input_length=100),
+    layers.Conv1D(64, 5, activation='relu'),
+    layers.GlobalMaxPooling1D(),
+    layers.Dense(64, activation='relu'),
+    layers.Dense(1)  # Output: solubility (regression)
+])
+
+model.compile(optimizer='adam', loss='mse', metrics=['mae'])
+model.summary()
+from sklearn.model_selection import train_test_split
+
+X_train, X_val, y_train, y_val = train_test_split(
+    X.numpy(), y.numpy(), test_size=0.2, random_state=42
+)
+
+history = model.fit(
+    X_train, y_train,
+    validation_data=(X_val, y_val),
+    epochs=20,
+    batch_size=32
+)
+import matplotlib.pyplot as plt
+
+# Predict on validation set
+y_pred = model.predict(X_val).flatten()
+
+# Plot
+plt.figure(figsize=(6,6))
+plt.scatter(y_val, y_pred, alpha=0.6)
+plt.xlabel("True Solubility")
+plt.ylabel("Predicted Solubility")
+plt.plot([-6, 2], [-6, 2], 'r--')
+plt.title("Predicted vs True Solubility")
+plt.grid(True)
+plt.show()
